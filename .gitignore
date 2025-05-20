@@ -1,0 +1,60 @@
+# Maven
+target/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Eclipse
+.classpath
+.project
+.settings/
+bin/
+
+# NetBeans
+nbproject/private/
+build/
+nbbuild/
+dist/
+nbdist/
+.nb-gradle/
+
+# 测试文件
+test_outputs/
+test.html
+
+# VS Code
+.vscode/
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*~
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# Maven Build Helper
+dependency-reduced-pom.xml
+release.properties
+
+# Test outputs directory (created by our tests)
+test_outputs/
+
+# Specific to this project if any other local files are generated
+# For example, if HTML input files are temporary and shouldn't be committed:
+# *.html (Be careful with this if you have HTML files you WANT to commit, like test.html)
+# If test.html is a permanent test fixture, don't add *.html generally.
+# Instead, be specific if needed, e.g. temp_*.html
+
+# Java archives (if built locally and not intended for repo, e.g., from 'mvn package')
+# *.jar
+# *.war
+# *.ear
+# (Usually covered by target/, but can be explicit if they appear elsewhere) 
