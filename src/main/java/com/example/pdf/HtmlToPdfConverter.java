@@ -29,6 +29,26 @@ import java.util.regex.Pattern;
 public class HtmlToPdfConverter {
 
     private static final Logger LOGGER = Logger.getLogger(HtmlToPdfConverter.class.getName());
+    public static final float POINTS_PER_MM = 72f / 25.4f; // Constant for mm to points conversion
+    
+    // 默认位移参数（负值向左上移动）
+    // private static final float DEFAULT_X_OFFSET = -10f;
+    // private static final float DEFAULT_Y_OFFSET = -10f;
+    private static final float DEFAULT_X_OFFSET = 0;
+    private static final float DEFAULT_Y_OFFSET = 0;
+
+    /**
+     * Creates a PageSize object from width and height in millimeters.
+     *
+     * @param widthInMm  Width in millimeters.
+     * @param heightInMm Height in millimeters.
+     * @return PageSize object.
+     */
+    public static PageSize createPageSizeInMillimeters(float widthInMm, float heightInMm) {
+        float widthInPoints = widthInMm * POINTS_PER_MM;
+        float heightInPoints = heightInMm * POINTS_PER_MM;
+        return new PageSize(widthInPoints, heightInPoints);
+    }
 
     /**
      * html转pdf
@@ -57,8 +77,8 @@ public class HtmlToPdfConverter {
             }
             pdfFile = Paths.get(parentDirString, pdfFileName + ".pdf").toFile();
 
-            try (PdfWriter pdfWriter = new PdfWriter(pdfFile);
-                 PdfDocument pdfDocument = new PdfDocument(pdfWriter)) {
+            try (PdfWriter pdfWriter = new PdfWriter(pdfFile)) {
+                PdfDocument pdfDocument = new PdfDocument(pdfWriter);
 
                 if (pageSize != null) {
                     pdfDocument.setDefaultPageSize(pageSize);
@@ -68,23 +88,47 @@ public class HtmlToPdfConverter {
 
                 ConverterProperties properties = new ConverterProperties();
                 FontProvider fontProvider = new FontProvider();
+                boolean customFontsProcessed = false;
 
-                boolean customFontsLoaded = false;
                 if (customFontDir != null && !customFontDir.trim().isEmpty()) {
                     File fontDirFile = new File(customFontDir);
                     if (fontDirFile.exists() && fontDirFile.isDirectory()) {
-                        LOGGER.info("Loading custom fonts from directory: " + fontDirFile.getAbsolutePath());
-                        fontProvider.addDirectory(fontDirFile.getAbsolutePath());
-                        customFontsLoaded = true;
+                        LOGGER.info("Attempting to load specific Microsoft YaHei fonts from: " + fontDirFile.getAbsolutePath());
+
+                        String yaheiRegularPath = Paths.get(fontDirFile.getAbsolutePath(), "msyh.ttf").toString();
+                        String yaheiBoldPath = Paths.get(fontDirFile.getAbsolutePath(), "msyhbd.ttf").toString();
+                        // Optional: for YaHei Light if available and needed for font-weight: lighter or specific values
+                        // String yaheiLightPath = Paths.get(fontDirFile.getAbsolutePath(), "msyhl.ttf").toString(); 
+
+                        File yaheiRegularFile = new File(yaheiRegularPath);
+                        File yaheiBoldFile = new File(yaheiBoldPath);
+                        // File yaheiLightFile = new File(yaheiLightPath);
+
+                        if (yaheiRegularFile.exists() && yaheiBoldFile.exists()) {
+                            fontProvider.addFont(yaheiRegularPath);
+                            fontProvider.addFont(yaheiBoldPath);
+                            
+                            LOGGER.info("Successfully loaded: " + yaheiRegularPath);
+                            LOGGER.info("Successfully loaded: " + yaheiBoldPath);
+                            // if (yaheiLightFile.exists()) { LOGGER.info("Successfully loaded: " + yaheiLightPath); }
+                            LOGGER.info("FontProvider configured to prioritize Microsoft YaHei. Unloaded fonts like 'SimSun' or 'SimHei' should fallback to YaHei if CSS specifies them or if YaHei is a generic fallback.");
+                            customFontsProcessed = true;
+                        } else {
+                            String notFoundMessage = "Required Microsoft YaHei fonts not found in " + fontDirFile.getAbsolutePath() + ":";
+                            if (!yaheiRegularFile.exists()) notFoundMessage += " msyh.ttf missing;";
+                            if (!yaheiBoldFile.exists()) notFoundMessage += " msyhbd.ttf missing;";
+                            LOGGER.warning(notFoundMessage);
+                            customFontsProcessed = false; // Fallback if files are missing
+                        }
                     } else {
                         LOGGER.warning("Custom font directory not found or not a directory: " + customFontDir);
+                        customFontsProcessed = false; // Fallback if dir is invalid
                     }
                 }
 
-                if (!customFontsLoaded) {
-                    LOGGER.info("No custom fonts loaded or custom font directory not provided/invalid. Using fallback fonts.");
+                if (!customFontsProcessed) {
+                    LOGGER.info("Custom YaHei font processing failed or not configured. Using fallback font loading (STSongStd-Light or standard PDF fonts).");
                     try {
-                        // Attempt to load a standard Asian font as a fallback
                         PdfFont sysFont = PdfFontFactory.createFont("STSongStd-Light", PdfEncodings.IDENTITY_H);
                         fontProvider.addFont(sysFont.getFontProgram(), PdfEncodings.IDENTITY_H);
                         LOGGER.info("Fallback font STSongStd-Light loaded.");
@@ -102,7 +146,19 @@ public class HtmlToPdfConverter {
                 if (processedHtmlStream == null) {
                     throw new IOException("Failed to read and process input HTML stream.");
                 }
-                HtmlConverter.convertToPdf(processedHtmlStream, pdfDocument, properties);
+                
+                // 重要：在创建Document前，首先在左上角生成一个位移标记元素
+                // 这样内容会自动相对于这个标记进行定位
+                PdfCanvas shiftCanvas = new PdfCanvas(pdfDocument.addNewPage());
+                shiftCanvas.concatMatrix(1, 0, 0, 1, DEFAULT_X_OFFSET, DEFAULT_Y_OFFSET);
+                
+                // Remove margins by using a Document with 0 margins and convert HTML to Document.
+                com.itextpdf.layout.Document document = HtmlConverter.convertToDocument(processedHtmlStream, pdfDocument, properties);
+                document.setMargins(0f, 0f, 0f, 0f);
+                
+                // 关闭文档
+                document.close();
+                pdfDocument.close();
             } 
 
             pdfReader = new PdfReader(pdfFile);
@@ -110,10 +166,10 @@ public class HtmlToPdfConverter {
                  PdfDocument finalPdfDoc = new PdfDocument(pdfReader, writerToOutputStream)) {
                 pdfReader = null; 
 
-                int numberOfPages = finalPdfDoc.getNumberOfPages();
-                if (numberOfPages > 0) {
-                    addPageFoot(finalPdfDoc, numberOfPages);
-                }
+                // int numberOfPages = finalPdfDoc.getNumberOfPages();
+                // if (numberOfPages > 0) {
+                //     addPageFoot(finalPdfDoc, numberOfPages);
+                // }
             }
 
         } finally {
